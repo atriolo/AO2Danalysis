@@ -77,32 +77,63 @@ std::tuple<double, double, double, double> fitRoofit(TH1* h, float rangea, float
     
     dh.plotOn(xFrame);
     
-    if (particle == "Omega"){
+    if (StoN){
+
+        if (particle == "Omega"){
         std::cout << "Fitting Omega" << std::endl;
         RooAddPdf modelOmega("modelOmega", "modelOmega", RooArgList(cb, exp), RooArgList(n_signal, n_background) );
         modelOmega.fitTo(dh, RooFit::Range(rangea, rangeb));
         modelOmega.plotOn(xFrame, RooFit::LineColor(kRed), RooFit::LineWidth(1));
-    }
+        }
 
-    else if(particle == "Xi" && StoN){
+        else if(particle == "Xi"){
         std::cout << "Fitting Xi" << std::endl;
         RooAddPdf modelXi("modelXi", "modelXi", RooArgList(cb, exp), RooArgList(n_signal, n_background) );
         modelXi.fitTo(dh, RooFit::Range(rangea, rangeb));
         modelXi.plotOn(xFrame, RooFit::LineColor(kRed), RooFit::LineWidth(1));
+        }
+
     }
 
-    if (fittype == "gaus" && particle != "Omega") {
-        gaus.fitTo(dh, RooFit::Range(rangea, rangeb),RooFit::PrintLevel(-1));
+    else if (DCA){ /// comparison between CB and Gaus(core)
+        double limita, limitb;
+        if (particle == "Omega"){
+            limita = -0.004;
+            limitb = 0.005;
+        }
+
+        else if(particle == "Xi"){
+            limita = -0.004;
+            limitb = 0.005;
+        }
+
+        if (fittype == "cb"){
+            cb.fitTo(dh, RooFit::Range(rangea, rangeb), RooFit::PrintLevel(-1));
+            cb.plotOn(xFrame, RooFit::LineColor(kRed), RooFit::LineWidth(1)   );
+        }
+
+        else if (fittype == "gaus"){
+            gaus.fitTo(dh, RooFit::Range(limita, limitb));
+            gaus.plotOn(xFrame, RooFit::LineColor(kRed), RooFit::LineWidth(1),RooFit::Range(rangea, rangeb));
+        }
+        
+
     }
-    else if (fittype == "cb" && particle != "Omega" && !StoN) {
-        cb.fitTo(dh, RooFit::Range(rangea, rangeb), RooFit::PrintLevel(-1));
-    }
-    
-    if (fittype == "gaus" && particle != "Omega") {
-        gaus.plotOn(xFrame, RooFit::LineColor(kRed), RooFit::LineWidth(1)  );
-    }
-    else if (fittype == "cb" && particle != "Omega" && !StoN) {
-        cb.plotOn(xFrame, RooFit::LineColor(kRed), RooFit::LineWidth(1)  );
+
+    else{
+        if (particle == "Omega"){
+        std::cout << "Fitting Omega" << std::endl;
+        RooAddPdf modelOmega("modelOmega", "modelOmega", RooArgList(cb, exp), RooArgList(n_signal, n_background) );
+        modelOmega.fitTo(dh, RooFit::Range(rangea, rangeb));
+        modelOmega.plotOn(xFrame, RooFit::LineColor(kRed), RooFit::LineWidth(1));
+        }
+
+        if (particle == "Xi"){
+            std::cout << "Fitting Xi" << std::endl;
+            cb.fitTo(dh, RooFit::Range(rangea, rangeb), RooFit::PrintLevel(-1));
+            cb.plotOn(xFrame, RooFit::LineColor(kRed), RooFit::LineWidth(1)  );
+        }
+
     }
     
     xFrame->Draw();
@@ -137,6 +168,7 @@ std::tuple<double, double, double, double> fitRoofit(TH1* h, float rangea, float
     
     pv->Draw("same");
     c->SaveAs(filename.c_str());
+    
 
     if (StoN){
         auto signal_counts = n_signal.getVal();
@@ -159,7 +191,10 @@ std::tuple<double, double, double, double> fitRoofit(TH1* h, float rangea, float
         // return std::tuple<double, double,double,double>{n_signal.getVal(),n_background.getVal(), n_signal.getError(), n_background.getError()};
         return std::tuple<double,double,double,double>{signal_int_val_2s,bkg_int_val_2s, signal_int_val_2s_error, bkg_int_val_2s_error};
     }
-    if (DCA){
+    else if (DCA){
+        filename = Form("plots/%s/LOG_%s", dir.c_str(), name.c_str());
+        c->SetLogy();
+        c->SaveAs(filename.c_str());
         return std::tuple<double, double,double,double>{mu.getVal(), sigma.getVal()*10000, mu.getError(), sigma.getError()*10000};
     }
     return std::tuple<double, double,double,double>{mu.getVal(), sigma.getVal(), mu.getError(), sigma.getError()};
@@ -294,16 +329,22 @@ TH1D*  signalToNoise(ROOT::RDF::RResultPtr<TH2D> hMassVsPt, std::string resultNa
     return SToN;
 };
 
-TH1F* sigmaDCAvsPt(ROOT::RDF::RResultPtr<TH2D> hDCAvsPt, std::string resultName, std::string axis, std::string dir, std::string particle, std::string type){
+std::tuple<TH1F*, TH1F*> sigmaDCAvsPt(ROOT::RDF::RResultPtr<TH2D> hDCAvsPt, std::string resultName, std::string axis, std::string dir, std::string particle, std::string type){
     gStyle->SetPadTickX(1);
     gStyle->SetPadTickY(1);
     // std::cout<<"------------"<<std::endl;
 
     std::unique_ptr<TFile> projections(TFile::Open(Form("projections/projections_%s.root",dir.c_str()), "RECREATE"));
-    double sigma[25];
-    double sigmaErrors[25];
-    double mean[25];
-    double meanErrors[25];
+    double cb_sigma[25];
+    double cb_sigmaErrors[25];
+    double cb_mean[25];
+    double cb_meanErrors[25];
+
+    double gaus_sigma[25];
+    double gaus_sigmaErrors[25];
+    double gaus_mean[25];
+    double gaus_meanErrors[25];
+
     double pt[25];
 
 
@@ -314,15 +355,25 @@ TH1F* sigmaDCAvsPt(ROOT::RDF::RResultPtr<TH2D> hDCAvsPt, std::string resultName,
         h->SetMarkerStyle(20);
         h->SetMarkerSize(0.5);
 
-        std::tuple<double,double,double,double> mean_sigma_merr_serr = fitRoofit(h,-0.02, 0.02, Form("sigmaDCAvsPt/%sbin%d.pdf", type.c_str(),i), dir , "cb", particle, 0.2 + (countbin)*0.4,false, true, axis);
+        std::tuple<double,double,double,double> cb_mean_sigma_merr_serr = fitRoofit(h,-0.02, 0.02, Form("sigmaDCAvsPt/%scb_bin%d.pdf", type.c_str(),i), dir , "cb", particle, 0.2 + (countbin)*0.4,false, true, axis);
+        std::tuple<double,double,double,double> gaus_mean_sigma_merr_serr = fitRoofit(h,-0.02, 0.02, Form("sigmaDCAvsPt/%sgaus_bin%d.pdf", type.c_str(),i), dir , "gaus", particle, 0.2 + (countbin)*0.4,false, true, axis);
 
         // std::cout<<"\n+++++++++++++++++++++++++++sigma "<<std::get<1>(mean_sigma_merr_serr)<<" "<<std::get<3>(mean_sigma_merr_serr)<<" ++++++++++++++++"<<std::endl;
 
-        sigma[countbin] = std::get<1>(mean_sigma_merr_serr);
-        sigmaErrors[countbin] = std::get<3>(mean_sigma_merr_serr);
-        mean[countbin] = std::get<0>(mean_sigma_merr_serr);
-        meanErrors[countbin] = std::get<2>(mean_sigma_merr_serr);
-        pt[countbin] = 0.2 + (countbin)*0.4;    ////////////////////// !!!!!!!!!!!!!!!!!
+        cb_sigma[countbin] = std::get<1>(cb_mean_sigma_merr_serr);
+        cb_sigmaErrors[countbin] = std::get<3>(cb_mean_sigma_merr_serr);
+        cb_mean[countbin] = std::get<0>(cb_mean_sigma_merr_serr);
+        cb_meanErrors[countbin] = std::get<2>(cb_mean_sigma_merr_serr);
+
+
+        gaus_sigma[countbin] = std::get<1>(gaus_mean_sigma_merr_serr);
+        gaus_sigmaErrors[countbin] = std::get<3>(gaus_mean_sigma_merr_serr);
+        gaus_mean[countbin] = std::get<0>(gaus_mean_sigma_merr_serr);
+        gaus_meanErrors[countbin] = std::get<2>(gaus_mean_sigma_merr_serr);
+
+
+
+        pt[countbin] = 0.2 + (countbin)*0.4;    
         // std::cout<<"i: "<<i<<" pt: "<<pt[countbin]<<std::endl;
         h->Write();
         
@@ -334,28 +385,36 @@ TH1F* sigmaDCAvsPt(ROOT::RDF::RResultPtr<TH2D> hDCAvsPt, std::string resultName,
     projections->Close();
 
     // TGraphErrors* DCAresolution = new TGraphErrors(24, pt, sigma, 0, sigmaErrors) ;
-    TH1F* DCAresolution = new TH1F("DCAresolution", "", 25, 0, 10);
+    TH1F* cb_DCAresolution = new TH1F("cb_DCAresolution", "", 25, 0, 10);
 
-    // TCanvas c;
-    // DCAresolution->Draw("AP");
-    std::string title = Form("; #it{p}_{T} (GeV/c); #sigma_{DCA_{%s}} (#mum)", axis.c_str());
-    DCAresolution->SetTitle(title.c_str());
-    DCAresolution->SetMarkerStyle(21);
-    DCAresolution->SetName(resultName.c_str());
-    DCAresolution->GetXaxis()->SetRangeUser(0,10);
-    DCAresolution->GetYaxis()->SetRangeUser(0,80);
+    std::string cb_title = Form("; #it{p}_{T} (GeV/c); #sigma_{DCA_{%s}} (#mum)", axis.c_str());
+    cb_DCAresolution->SetTitle(cb_title.c_str());
+    cb_DCAresolution->SetMarkerStyle(21);
+    cb_DCAresolution->SetName(resultName.c_str());
+    cb_DCAresolution->GetXaxis()->SetRangeUser(0,10);
+    cb_DCAresolution->GetYaxis()->SetRangeUser(0,80);
   
     for (int i=0; i<25; i++){
-        DCAresolution->SetBinContent(i+1, sigma[i]);
-        DCAresolution->SetBinError(i+1, sigmaErrors[i]);
+        cb_DCAresolution->SetBinContent(i+1, cb_sigma[i]);
+        cb_DCAresolution->SetBinError(i+1, cb_sigmaErrors[i]);
+    }
+
+    TH1F* gaus_DCAresolution = new TH1F("gaus_DCAresolution", "", 25, 0, 10);
+
+    std::string gaus_title = Form("; #it{p}_{T} (GeV/c); #sigma_{DCA_{%s}} (#mum)", axis.c_str());
+    gaus_DCAresolution->SetTitle(gaus_title.c_str());
+    gaus_DCAresolution->SetMarkerStyle(21);
+    gaus_DCAresolution->SetName(resultName.c_str());
+    gaus_DCAresolution->GetXaxis()->SetRangeUser(0,10);
+    gaus_DCAresolution->GetYaxis()->SetRangeUser(0,80);
+  
+    for (int i=0; i<25; i++){
+        gaus_DCAresolution->SetBinContent(i+1, gaus_sigma[i]);
+        gaus_DCAresolution->SetBinError(i+1, gaus_sigmaErrors[i]);
     }
 
 
-    // std::unique_ptr<TGraphErrors> DCAresolution(50, pt, sigma, 0, sigmaErrors);
-    // c.SaveAs(Form("%s.png", resultName.c_str()));
-
-    // DCAresolution->Write();
-    return DCAresolution;
+    return std::tuple<TH1F*, TH1F*> {cb_DCAresolution,gaus_DCAresolution};
 };
 
 
@@ -411,9 +470,14 @@ void fillHistograms(ROOT::RDF::RNode table, TFile* myFile, std::string dir, std:
         auto hXiDCAzCuts = casctableCutXiMass.Histo1D({"hXiDCAzCuts", ";#Xi DCA_{z} (cm);Counts", 200, -0.02, 0.02},"fCascDCAz");        
         fitRoofit(hXiDCAzCuts.GetPtr(),-0.02, 0.02, "XiDCAzCuts.pdf", dir , "cb", particle, -1,false, true, "z");
 
-          
-        TH1F * DCAxyResolutionXiCuts = sigmaDCAvsPt(hXiCutsDCAxyVsPt, "DCAxyResolutionXiCuts", "xy", dir.substr(0, dir.size()-1), particle, "cuts/xy_");
-        TH1F * DCAzResolutionXiCuts = sigmaDCAvsPt(hXiCutsDCAzVsPt, "DCAzResolutionXiCuts","z", dir.substr(0, dir.size()-1), particle, "cuts/z_");
+        std::tuple<TH1F*, TH1F*> DCAxyResolutionXiCuts = sigmaDCAvsPt(hXiCutsDCAxyVsPt, "DCAxyResolutionXiCuts", "xy", dir.substr(0, dir.size()-1), particle, "cuts/xy_" );
+        std::tuple<TH1F*, TH1F*> DCAzResolutionXiCuts = sigmaDCAvsPt(hXiCutsDCAzVsPt, "DCAzResolutionXiCuts","z", dir.substr(0, dir.size()-1), particle, "cuts/z_");
+        
+        
+        TH1F * cb_DCAxyResolutionXiCuts = std::get<0>(DCAxyResolutionXiCuts);
+        TH1F * gaus_DCAxyResolutionXiCuts = std::get<1>(DCAxyResolutionXiCuts);
+        TH1F * cb_DCAzResolutionXiCuts = std::get<0>(DCAzResolutionXiCuts);
+        TH1F * gaus_DCAzResolutionXiCuts = std::get<1>(DCAzResolutionXiCuts);
 
         auto casctableTailsXiMass = table.Filter([&](double fMassXi){if (fMassXi < meanMassXi - 4. * sigmaMassXi || fMassXi > meanMassXi + 4. * sigmaMassXi) return true; else return false;},{"fMassXi"});
         auto hXiTailsDCAxyVsPt = casctableTailsXiMass.Histo2D({"hXiTailsDCAxyVsPt", ";#it{p}_{T} (GeV/#it{c});#Xi DCA_{xy} (cm)", 50, 0.,10., 100, -0.02, 0.02}, "fCascPt", "fCascDCAxy");
@@ -424,8 +488,8 @@ void fillHistograms(ROOT::RDF::RNode table, TFile* myFile, std::string dir, std:
         auto hXiDCAzTails = casctableTailsXiMass.Histo1D({"hXiDCAzTails", ";#Xi DCA_{z} (cm);Counts", 200, -0.02, 0.02},"fCascDCAz");        
         fitRoofit(hXiDCAzTails.GetPtr(),-0.02, 0.02, "XiDCAzTails.pdf", dir , "cb", particle, -1,false, true, "z");
        
-        TH1F * DCAxyResolutionXiTails = sigmaDCAvsPt(hXiTailsDCAxyVsPt, "DCAxyResolutionXiTails", "xy", dir.substr(0, dir.size()-1), particle, "tails/xy_");
-        TH1F * DCAzResolutionXiTails = sigmaDCAvsPt(hXiTailsDCAzVsPt, "DCAzResolutionXiTails","z", dir.substr(0, dir.size()-1), particle,"tails/z_");
+        // TH1F * DCAxyResolutionXiTails = sigmaDCAvsPt(hXiTailsDCAxyVsPt, "DCAxyResolutionXiTails", "xy", dir.substr(0, dir.size()-1), particle, "tails/xy_");
+        // TH1F * DCAzResolutionXiTails = sigmaDCAvsPt(hXiTailsDCAzVsPt, "DCAzResolutionXiTails","z", dir.substr(0, dir.size()-1), particle,"tails/z_");
 
         // histograms 2D: mass vs pt
         auto hXiMassVsPt = table.Histo2D({"hXiMassVsPt", ";#it{p}_{T} (GeV/#it{c});Inv. mass (GeV/#it{c}^{2})", 50, 0.,10., 125, 1.300, 1.345}, "fCascPt", "fMassXi");
@@ -451,12 +515,14 @@ void fillHistograms(ROOT::RDF::RNode table, TFile* myFile, std::string dir, std:
         hXiDCAzCuts->Write();
         hXiDCAxyTails->Write();
         hXiDCAzTails->Write();
-        DCAxyResolutionXiCuts->Write();
-        DCAzResolutionXiCuts->Write();
+        cb_DCAxyResolutionXiCuts->Write();
+        gaus_DCAxyResolutionXiCuts->Write();
+        cb_DCAzResolutionXiCuts->Write();
+        gaus_DCAzResolutionXiCuts->Write();
         hXiTailsDCAxyVsPt->Write();
         hXiTailsDCAzVsPt->Write();
-        DCAxyResolutionXiTails->Write();
-        DCAzResolutionXiTails->Write();
+        // DCAxyResolutionXiTails->Write();
+        // DCAzResolutionXiTails->Write();
         hXiMassVsPt->Write();
         stdMassXi->Write();
 
@@ -494,29 +560,41 @@ void fillHistograms(ROOT::RDF::RNode table, TFile* myFile, std::string dir, std:
         c.SaveAs(("plots/" + dir.substr(0, dir.size()-1) + "/stdMassXi.pdf").c_str());
 
         TCanvas c1;
-        DCAxyResolutionXiCuts->SetMarkerSize(0.5);
-        DCAxyResolutionXiCuts->SetMarkerStyle(20);
-        DCAxyResolutionXiCuts->Draw();
-        c1.SaveAs(("plots/" + dir.substr(0, dir.size()-1) + "/DCAxyResolutionXiCuts.pdf").c_str());
+        cb_DCAxyResolutionXiCuts->SetMarkerSize(0.5);
+        cb_DCAxyResolutionXiCuts->SetMarkerStyle(20);
+        cb_DCAxyResolutionXiCuts->Draw();
+        c1.SaveAs(("plots/" + dir.substr(0, dir.size()-1) + "/cb_DCAxyResolutionXiCuts.pdf").c_str());
 
         TCanvas c2;
-        DCAzResolutionXiCuts->SetMarkerSize(0.5);
-        DCAzResolutionXiCuts->SetMarkerStyle(20);
-        DCAzResolutionXiCuts->Draw();
-        c2.SaveAs(("plots/" + dir.substr(0, dir.size()-1) + "/DCAzResolutionXiCuts.pdf").c_str());
-
+        cb_DCAzResolutionXiCuts->SetMarkerSize(0.5);
+        cb_DCAzResolutionXiCuts->SetMarkerStyle(20);
+        cb_DCAzResolutionXiCuts->Draw();
+        c2.SaveAs(("plots/" + dir.substr(0, dir.size()-1) + "/cb_DCAzResolutionXiCuts.pdf").c_str());
 
         TCanvas c3;
-        DCAxyResolutionXiTails->SetMarkerSize(0.5);
-        DCAxyResolutionXiTails->SetMarkerStyle(20);
-        DCAxyResolutionXiTails->Draw();
-        c3.SaveAs(("plots/" + dir.substr(0, dir.size()-1) + "/DCAxyResolutionXiTails.pdf").c_str());
+        gaus_DCAxyResolutionXiCuts->SetMarkerSize(0.5);
+        gaus_DCAxyResolutionXiCuts->SetMarkerStyle(20);
+        gaus_DCAxyResolutionXiCuts->Draw();
+        c3.SaveAs(("plots/" + dir.substr(0, dir.size()-1) + "/gaus_DCAxyResolutionXiCuts.pdf").c_str());
 
         TCanvas c4;
-        DCAzResolutionXiTails->SetMarkerSize(0.5);
-        DCAzResolutionXiTails->SetMarkerStyle(20);
-        DCAzResolutionXiTails->Draw();
-        c4.SaveAs(("plots/" + dir.substr(0, dir.size()-1) + "/DCAzResolutionXiTails.pdf").c_str());
+        gaus_DCAzResolutionXiCuts->SetMarkerSize(0.5);
+        gaus_DCAzResolutionXiCuts->SetMarkerStyle(20);
+        gaus_DCAzResolutionXiCuts->Draw();
+        c4.SaveAs(("plots/" + dir.substr(0, dir.size()-1) + "/gaus_DCAzResolutionXiCuts.pdf").c_str());
+
+
+        // TCanvas c3;
+        // DCAxyResolutionXiTails->SetMarkerSize(0.5);
+        // DCAxyResolutionXiTails->SetMarkerStyle(20);
+        // DCAxyResolutionXiTails->Draw();
+        // c3.SaveAs(("plots/" + dir.substr(0, dir.size()-1) + "/DCAxyResolutionXiTails.pdf").c_str());
+
+        // TCanvas c4;
+        // DCAzResolutionXiTails->SetMarkerSize(0.5);
+        // DCAzResolutionXiTails->SetMarkerStyle(20);
+        // DCAzResolutionXiTails->Draw();
+        // c4.SaveAs(("plots/" + dir.substr(0, dir.size()-1) + "/DCAzResolutionXiTails.pdf").c_str());
 
         std::cout<<"++++++++++++++++++++++++++meanMassXi: "<<meanMassXi<<" sigmaMassXi: "<<sigmaMassXi<<std::endl;
 
@@ -553,10 +631,13 @@ void fillHistograms(ROOT::RDF::RNode table, TFile* myFile, std::string dir, std:
         auto hOmegaDCAzCuts = casctableCutOmegaMass.Histo1D({"hOmegaDCAzCuts", ";#Omega DCA_{z} (cm);Counts", 200, -0.02, 0.02},"fCascDCAz");        
         fitRoofit(hOmegaDCAzCuts.GetPtr(),-0.02, 0.02, "OmegaDCAzCuts.pdf", dir , "cb", particle, -1,false, true, "z");
 
-
-
-        TH1F * DCAxyResolutionOmegaCuts = sigmaDCAvsPt(hOmegaCutsDCAxyVsPt, "DCAxyResolutionOmegaCuts", "xy", dir.substr(0, dir.size()-1), particle, "cuts/xy_");
-        TH1F * DCAzResolutionOmegaCuts = sigmaDCAvsPt(hOmegaCutsDCAzVsPt, "DCAzResolutionOmegaCuts","z", dir.substr(0, dir.size()-1), particle, "cuts/z_");
+        std::tuple<TH1F*, TH1F*> DCAxyResolutionOmegaCuts = sigmaDCAvsPt(hOmegaCutsDCAxyVsPt, "DCAxyResolutionOmegaCuts", "xy", dir.substr(0, dir.size()-1), particle, "cuts/xy_");
+        std::tuple<TH1F*, TH1F*> DCAzResolutionOmegaCuts = sigmaDCAvsPt(hOmegaCutsDCAzVsPt, "DCAzResolutionOmegaCuts","z", dir.substr(0, dir.size()-1), particle, "cuts/z_");
+        
+        TH1F * cb_DCAxyResolutionOmegaCuts = std::get<0>(DCAxyResolutionOmegaCuts);
+        TH1F * gaus_DCAxyResolutionOmegaCuts =std::get<1>(DCAxyResolutionOmegaCuts);
+        TH1F * cb_DCAzResolutionOmegaCuts =  std::get<0>(DCAzResolutionOmegaCuts);
+        TH1F * gaus_DCAzResolutionOmegaCuts = std::get<1>(DCAzResolutionOmegaCuts);
 
         auto casctableTailsOmegaMass = table.Filter([&](double fMassOmega){if (fMassOmega < meanMassOmega -4. * sigmaMassOmega || fMassOmega > meanMassOmega + 4. * sigmaMassOmega) return true; else return false;},{"fMassOmega"});
         auto hOmegaTailsDCAxyVsPt = casctableTailsOmegaMass.Histo2D({"hOmegaTailsDCAxyVsPt", ";#it{p}_{T} (GeV/#it{c});#Omega DCA_{xy} (cm)", 50, 0.,10., 100, -0.02, 0.02}, "fCascPt", "fCascDCAxy");
@@ -567,8 +648,8 @@ void fillHistograms(ROOT::RDF::RNode table, TFile* myFile, std::string dir, std:
         auto hOmegaDCAzTails = casctableTailsOmegaMass.Histo1D({"hOmegaDCAzTails", ";#Omega DCA_{z} (cm);Counts", 200, -0.02, 0.02},"fCascDCAz");        
         fitRoofit(hOmegaDCAzTails.GetPtr(),-0.02, 0.02, "OmegaDCAzTails.pdf", dir , "cb", particle, -1,false, true, "z");
      
-        TH1F * DCAxyResolutionOmegaTails = sigmaDCAvsPt(hOmegaTailsDCAxyVsPt, "DCAxyResolutionOmegaTails", "xy", dir.substr(0, dir.size()-1), particle, "tails/xy_");
-        TH1F * DCAzResolutionOmegaTails = sigmaDCAvsPt(hOmegaTailsDCAzVsPt, "DCAzResolutionOmegaTails","z", dir.substr(0, dir.size()-1), particle, "tails/z_");
+        // TH1F * DCAxyResolutionOmegaTails = sigmaDCAvsPt(hOmegaTailsDCAxyVsPt, "DCAxyResolutionOmegaTails", "xy", dir.substr(0, dir.size()-1), particle, "tails/xy_");
+        // TH1F * DCAzResolutionOmegaTails = sigmaDCAvsPt(hOmegaTailsDCAzVsPt, "DCAzResolutionOmegaTails","z", dir.substr(0, dir.size()-1), particle, "tails/z_");
 
         // histograms 2D: mass vs pt
         auto hOmegaMassVsPt = table.Histo2D({"hOmegaMassVsPt", ";#it{p}_{T} (GeV/#it{c});Inv. mass (GeV/#it{c}^{2})", 50, 0.,10., 100, 1.637, 1.707}, "fCascPt", "fMassOmega");
@@ -592,12 +673,14 @@ void fillHistograms(ROOT::RDF::RNode table, TFile* myFile, std::string dir, std:
         hOmegaCutsDCAzVsPt->Write();
         hOmegaDCAxy->Write();
         hOmegaDCAz->Write();
-        DCAxyResolutionOmegaCuts->Write();
-        DCAzResolutionOmegaCuts->Write();
+        cb_DCAxyResolutionOmegaCuts->Write();
+        cb_DCAzResolutionOmegaCuts->Write();
+        gaus_DCAxyResolutionOmegaCuts->Write();
+        gaus_DCAzResolutionOmegaCuts->Write();
         hOmegaTailsDCAxyVsPt->Write();
         hOmegaTailsDCAzVsPt->Write();
-        DCAxyResolutionOmegaTails->Write();
-        DCAzResolutionOmegaTails->Write();
+        // DCAxyResolutionOmegaTails->Write();
+        // DCAzResolutionOmegaTails->Write();
         hOmegaMassVsPt->Write();
         StoN->Write();
         stdMassOmega->Write();
@@ -636,30 +719,40 @@ void fillHistograms(ROOT::RDF::RNode table, TFile* myFile, std::string dir, std:
         c1.SaveAs(("plots/" + dir.substr(0, dir.size()-1) + "/StoN.pdf").c_str());
 
         TCanvas c2; 
-        DCAxyResolutionOmegaCuts->SetMarkerSize(0.5);
-        DCAxyResolutionOmegaCuts->SetMarkerStyle(20);
-        DCAxyResolutionOmegaCuts->Draw();
-        c2.SaveAs(("plots/" + dir.substr(0, dir.size()-1) + "/DCAxyResolutionOmegaCuts.pdf").c_str());
+        cb_DCAxyResolutionOmegaCuts->SetMarkerSize(0.5);
+        cb_DCAxyResolutionOmegaCuts->SetMarkerStyle(20);
+        cb_DCAxyResolutionOmegaCuts->Draw();
+        c2.SaveAs(("plots/" + dir.substr(0, dir.size()-1) + "/cb_DCAxyResolutionOmegaCuts.pdf").c_str());
 
         TCanvas c3;
-        DCAzResolutionOmegaCuts->SetMarkerSize(0.5);
-        DCAzResolutionOmegaCuts->SetMarkerStyle(20);
-        DCAzResolutionOmegaCuts->Draw();
-        c3.SaveAs(("plots/" + dir.substr(0, dir.size()-1) + "/DCAzResolutionOmegaCuts.pdf").c_str());
+        cb_DCAzResolutionOmegaCuts->SetMarkerSize(0.5);
+        cb_DCAzResolutionOmegaCuts->SetMarkerStyle(20);
+        cb_DCAzResolutionOmegaCuts->Draw();
+        c3.SaveAs(("plots/" + dir.substr(0, dir.size()-1) + "/cb_DCAzResolutionOmegaCuts.pdf").c_str());
 
-        TCanvas c4;
-        DCAxyResolutionOmegaTails->SetMarkerSize(0.5);
-        DCAxyResolutionOmegaTails->SetMarkerStyle(20);
-        DCAxyResolutionOmegaTails->Draw();
-        c4.SaveAs(("plots/" + dir.substr(0, dir.size()-1) + "/DCAxyResolutionOmegaTails.pdf").c_str());
+        TCanvas c4; 
+        gaus_DCAxyResolutionOmegaCuts->SetMarkerSize(0.5);
+        gaus_DCAxyResolutionOmegaCuts->SetMarkerStyle(20);
+        gaus_DCAxyResolutionOmegaCuts->Draw();
+        c4.SaveAs(("plots/" + dir.substr(0, dir.size()-1) + "/gaus_DCAxyResolutionOmegaCuts.pdf").c_str());
 
         TCanvas c5;
-        DCAzResolutionOmegaTails->SetMarkerSize(0.5);
-        DCAzResolutionOmegaTails->SetMarkerStyle(20);
-        DCAzResolutionOmegaTails->Draw();
-        c5.SaveAs(("plots/" + dir.substr(0, dir.size()-1) + "/DCAzResolutionOmegaTails.pdf").c_str());
+        gaus_DCAzResolutionOmegaCuts->SetMarkerSize(0.5);
+        gaus_DCAzResolutionOmegaCuts->SetMarkerStyle(20);
+        gaus_DCAzResolutionOmegaCuts->Draw();
+        c5.SaveAs(("plots/" + dir.substr(0, dir.size()-1) + "/gaus_DCAzResolutionOmegaCuts.pdf").c_str());
 
+        // TCanvas c4;
+        // DCAxyResolutionOmegaTails->SetMarkerSize(0.5);
+        // DCAxyResolutionOmegaTails->SetMarkerStyle(20);
+        // DCAxyResolutionOmegaTails->Draw();
+        // c4.SaveAs(("plots/" + dir.substr(0, dir.size()-1) + "/DCAxyResolutionOmegaTails.pdf").c_str());
 
+        // TCanvas c5;
+        // DCAzResolutionOmegaTails->SetMarkerSize(0.5);
+        // DCAzResolutionOmegaTails->SetMarkerStyle(20);
+        // DCAzResolutionOmegaTails->Draw();
+        // c5.SaveAs(("plots/" + dir.substr(0, dir.size()-1) + "/DCAzResolutionOmegaTails.pdf").c_str());
 
     }
     
@@ -680,8 +773,8 @@ void fillHistograms(ROOT::RDF::RNode table, TFile* myFile, std::string dir, std:
     auto hDCAxyVsPt = table.Histo2D({"hDCAxyVsPt", ";#it{p}_{T} (GeV/#it{c});DCA_{xy} (cm)", 50, 0.,10., 100, -0.02, 0.02}, "fCascPt", "fCascDCAxy");
     auto hDCAzVsPt = table.Histo2D({"hDCAzVsPt", ";#it{p}_{T} (GeV/#it{c});DCA_{z} (cm)", 50, 0.,10., 100, -0.02, 0.02}, "fCascPt", "fCascDCAz");
   
-    TH1F * DCAxyResolution = sigmaDCAvsPt(hDCAxyVsPt, "DCAxyResolution", "xy", dir.substr(0, dir.size()-1),particle,"xy_");
-    TH1F * DCAzResolution = sigmaDCAvsPt(hDCAzVsPt, "DCAzResolution","z", dir.substr(0, dir.size()-1), particle,"z_");
+    // TH1F * DCAxyResolution = sigmaDCAvsPt(hDCAxyVsPt, "DCAxyResolution", "xy", dir.substr(0, dir.size()-1),particle,"xy_");
+    // TH1F * DCAzResolution = sigmaDCAvsPt(hDCAzVsPt, "DCAzResolution","z", dir.substr(0, dir.size()-1), particle,"z_");
  
     myFile->cd(dir.c_str());
 
@@ -703,22 +796,20 @@ void fillHistograms(ROOT::RDF::RNode table, TFile* myFile, std::string dir, std:
     hDCAxyVsPt->Write();
     hDCAzVsPt->Write();
 
-    DCAxyResolution->Write();
-    DCAzResolution->Write();
+    // DCAxyResolution->Write();
+    // DCAzResolution->Write();
 
-    TCanvas c6;
-    DCAxyResolution->SetMarkerSize(0.5);
-    DCAxyResolution->SetMarkerStyle(20);
-    DCAxyResolution->Draw();
-    c6.SaveAs(("plots/" + dir.substr(0, dir.size()-1) + "/DCAxyResolution.pdf").c_str());
+    // TCanvas c6;
+    // DCAxyResolution->SetMarkerSize(0.5);
+    // DCAxyResolution->SetMarkerStyle(20);
+    // DCAxyResolution->Draw();
+    // c6.SaveAs(("plots/" + dir.substr(0, dir.size()-1) + "/DCAxyResolution.pdf").c_str());
 
-    TCanvas c7;
-    DCAzResolution->SetMarkerSize(0.5);
-    DCAzResolution->SetMarkerStyle(20);
-    DCAzResolution->Draw();
-    c7.SaveAs(("plots/" + dir.substr(0, dir.size()-1) + "/DCAzResolution.pdf").c_str());
-
-
+    // TCanvas c7;
+    // DCAzResolution->SetMarkerSize(0.5);
+    // DCAzResolution->SetMarkerStyle(20);
+    // DCAzResolution->Draw();
+    // c7.SaveAs(("plots/" + dir.substr(0, dir.size()-1) + "/DCAzResolution.pdf").c_str());
 
 }
 
